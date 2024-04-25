@@ -1,0 +1,91 @@
+name: ci
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - package.json
+      - src/**
+      - e2e/**
+      - .github/workflows/ci.yml
+  push:
+    branches:
+      - main
+    paths:
+      - package.json
+      - src/**
+      - e2e/**
+      - .github/workflows/ci.yml
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node
+      - run: pnpm lint
+      - run: npx biome check . && npx prettier --check './**/*.{md,yml}'
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node
+      - uses: ./.github/actions/setup-db
+      - run: pnpm build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app
+          path: .next
+  build-docker:
+    runs-on: ubuntu-latest
+    env:
+      # should store them to github.secrets
+      POSTGRES_URL: postgresql://dev:1234@172.17.0.1:5432/dev?schema=public
+      NEXTAUTH_SECRET: UfxvOS6HetHOFkL44YTITYgc0DOuOlz5TBp3jkbnZ3w=
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node
+      - uses: ./.github/actions/setup-db
+      - run: |
+          docker build \
+            -t app \
+            -f Dockerfile \
+            --build-arg POSTGRES_URL=${{env.POSTGRES_URL}} \
+            --build-arg NEXTAUTH_SECRET=${{env.NEXTAUTH_SECRET}} \
+            --build-arg NEXT_PUBLIC_SITE_URL=${{env.NEXT_PUBLIC_SITE_URL}} \
+            .
+      - run: docker run -d -p 3000:3000 app
+      - run: |
+          until $(curl --output /dev/null --silent --fail ${{env.NEXT_PUBLIC_SITE_URL}}); do
+            printf '!'
+            sleep 1
+          done
+        timeout-minutes: 1
+  unit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node
+      - uses: ./.github/actions/setup-db
+        with:
+          kind: test
+      - run: pnpm test
+  e2e-test:
+    needs: [build]
+    runs-on: ubuntu-latest
+    env:
+      NEXTAUTH_SECRET: UfxvOS6HetHOFkL44YTITYgc0DOuOlz5TBp3jkbnZ3w=
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-node
+      - run: pnpm exec playwright install chromium
+      - uses: ./.github/actions/setup-db
+        with:
+          kind: test
+      - uses: actions/download-artifact@v4
+        with:
+          name: app
+          path: .next
+      - run: pnpm test:e2e

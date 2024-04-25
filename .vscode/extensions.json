@@ -1,0 +1,9 @@
+{
+  "recommendations": [
+    "Prisma.prisma",
+    "esbenp.prettier-vscode",
+    "biomejs.biome",
+    "streetsidesoftware.code-spell-checker",
+    "EditorConfig.EditorConfig"
+  ]
+}
